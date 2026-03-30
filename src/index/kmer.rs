@@ -69,9 +69,8 @@ pub fn canonical_kmer(kmer: Kmer, k: usize) -> Kmer {
 pub fn kmer_to_string(kmer: Kmer, k: usize) -> String {
     let bases = ['A', 'C', 'G', 'T'];
     let mut s = String::with_capacity(k);
-    let mut km = kmer;
-    for _ in 0..k {
-        s.push(bases[((km >> (2 * (k - 1 - s.len()))) & 3) as usize]);
+    for i in 0..k {
+        s.push(bases[((kmer >> (2 * (k - 1 - i))) & 3) as usize]);
     }
     s
 }
