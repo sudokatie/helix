@@ -1,2 +1,9 @@
-// Index module - k-mer indexing and lookup
-// To be implemented in subsequent tasks
+mod kmer;
+
+pub use kmer::*;
+
+// Additional modules will be added in subsequent tasks:
+// mod minimizer;
+// mod hash;
+// mod build;
+// mod io;
