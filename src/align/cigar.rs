@@ -166,6 +166,15 @@ impl Cigar {
     pub fn reverse(&mut self) {
         self.ops.reverse();
     }
+
+    /// Create a new CIGAR with consecutive same-type operations merged
+    pub fn merged(self) -> Self {
+        let mut result = Cigar::new();
+        for op in self.ops {
+            result.push(op);
+        }
+        result
+    }
 }
 
 impl fmt::Display for Cigar {
