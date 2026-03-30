@@ -56,7 +56,7 @@ impl<'a> Iterator for MinimizerIterator<'a> {
                 self.window.push_back((pos, kmer, hash));
 
                 // Check if we have a full window
-                if self.window.len() >= 1 {
+                if !self.window.is_empty() {
                     let (min_pos, min_kmer, _) = self.window.front().unwrap();
 
                     // Deduplicate consecutive minimizers at same position

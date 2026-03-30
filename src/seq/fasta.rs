@@ -31,7 +31,6 @@ impl<R: BufRead> FastaReader<R> {
         let header = if first_line.starts_with('>') {
             Some(
                 first_line[1..]
-                    .trim()
                     .split_whitespace()
                     .next()
                     .unwrap_or("")
@@ -64,7 +63,6 @@ impl<R: BufRead> FastaReader<R> {
             if line.starts_with('>') {
                 self.current_header = Some(
                     line[1..]
-                        .trim()
                         .split_whitespace()
                         .next()
                         .unwrap_or("")

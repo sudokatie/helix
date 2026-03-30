@@ -34,7 +34,6 @@ impl<R: BufRead> FastqReader<R> {
         }
 
         let id = header[1..]
-            .trim()
             .split_whitespace()
             .next()
             .unwrap_or("")
@@ -72,7 +71,7 @@ pub fn open_fastq<P: AsRef<Path>>(
 ) -> std::io::Result<FastqReader<BufReader<Box<dyn Read + Send>>>> {
     let file = File::open(path.as_ref())?;
     let reader: Box<dyn Read + Send> =
-        if path.as_ref().extension().map_or(false, |e| e == "gz") {
+        if path.as_ref().extension().is_some_and(|e| e == "gz") {
             Box::new(GzDecoder::new(file))
         } else {
             Box::new(file)

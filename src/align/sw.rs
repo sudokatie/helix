@@ -117,6 +117,7 @@ pub fn smith_waterman_scalar(
 }
 
 /// Traceback to find alignment start position
+#[allow(clippy::too_many_arguments)]
 fn traceback(
     h: &[Vec<i32>],
     e: &[Vec<i32>],
