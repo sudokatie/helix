@@ -2,6 +2,7 @@ use crate::index::kmer::Kmer;
 use std::collections::HashMap;
 
 /// Hash index for k-mer to position lookups
+#[derive(Debug)]
 pub struct HashIndex {
     // During building: kmer -> positions
     builder: Option<HashMap<Kmer, Vec<u32>>>,

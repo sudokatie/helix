@@ -34,6 +34,7 @@ pub struct ReferenceInfo {
 }
 
 /// Complete index for alignment
+#[derive(Debug)]
 pub struct Index {
     pub references: Vec<ReferenceInfo>,
     pub hash: HashIndex,
