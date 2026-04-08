@@ -4,6 +4,7 @@ pub mod align;
 pub mod chain;
 pub mod output;
 pub mod util;
+pub mod paired;
 
 use thiserror::Error;
 

@@ -162,7 +162,7 @@ mod tests {
         assert_eq!(index.lookup(10), &[1]);
         assert_eq!(index.lookup(20), &[2, 4]);
         assert_eq!(index.lookup(30), &[3]);
-        assert_eq!(index.lookup(40), &[]);
+        assert_eq!(index.lookup(40), &[] as &[u32]);
     }
 
     #[test]
@@ -207,7 +207,7 @@ mod tests {
         assert!(index.is_empty());
         index.finalize();
         assert!(index.is_empty());
-        assert_eq!(index.lookup(42), &[]);
+        assert_eq!(index.lookup(42), &[] as &[u32]);
     }
 
     #[test]
