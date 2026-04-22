@@ -2,11 +2,13 @@ mod sw;
 mod cigar;
 mod sw_avx2;
 mod sw_neon;
+mod scoring;
 
 pub use sw::*;
 pub use cigar::*;
 pub use sw_avx2::smith_waterman_avx2;
 pub use sw_neon::smith_waterman_neon;
+pub use scoring::*;
 
 use crate::util::{detect_simd, SimdLevel};
 

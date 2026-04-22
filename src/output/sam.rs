@@ -281,11 +281,135 @@ mod tests {
 
         let output = String::from_utf8(buf).unwrap();
         let lines: Vec<_> = output.lines().collect();
-        
+
         // Should have header and record
         assert!(lines.len() >= 2);
         assert!(lines[0].starts_with("@HD"));
         assert!(lines[1].starts_with("@SQ"));
         assert!(lines[2].starts_with("read1"));
+    }
+
+    // TASK 21: Tests for reference sequences in SAM header
+
+    #[test]
+    fn test_header_multiple_references() {
+        let mut header = SamHeader::new();
+        header.add_reference("chr1".to_string(), 248956422);
+        header.add_reference("chr2".to_string(), 242193529);
+        header.add_reference("chr3".to_string(), 198295559);
+        header.add_reference("chrX".to_string(), 156040895);
+        header.add_reference("chrY".to_string(), 57227415);
+
+        let mut buf = Vec::new();
+        let mut writer = SamWriter::new(Cursor::new(&mut buf));
+        writer.write_header(&header).unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+
+        assert!(output.contains("@SQ\tSN:chr1\tLN:248956422"));
+        assert!(output.contains("@SQ\tSN:chr2\tLN:242193529"));
+        assert!(output.contains("@SQ\tSN:chr3\tLN:198295559"));
+        assert!(output.contains("@SQ\tSN:chrX\tLN:156040895"));
+        assert!(output.contains("@SQ\tSN:chrY\tLN:57227415"));
+
+        // Verify order is preserved
+        let chr1_pos = output.find("SN:chr1").unwrap();
+        let chr2_pos = output.find("SN:chr2").unwrap();
+        let chrY_pos = output.find("SN:chrY").unwrap();
+        assert!(chr1_pos < chr2_pos);
+        assert!(chr2_pos < chrY_pos);
+    }
+
+    #[test]
+    fn test_header_empty_references() {
+        let header = SamHeader::new();
+        assert!(header.references.is_empty());
+
+        let mut buf = Vec::new();
+        let mut writer = SamWriter::new(Cursor::new(&mut buf));
+        writer.write_header(&header).unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+
+        // Should have HD line but no SQ lines
+        assert!(output.contains("@HD\tVN:1.6"));
+        assert!(!output.contains("@SQ"));
+    }
+
+    #[test]
+    fn test_header_long_reference_name() {
+        let mut header = SamHeader::new();
+        let long_name = "NC_000001.11_Homo_sapiens_chromosome_1_GRCh38.p14_Primary_Assembly".to_string();
+        header.add_reference(long_name.clone(), 248956422);
+
+        let mut buf = Vec::new();
+        let mut writer = SamWriter::new(Cursor::new(&mut buf));
+        writer.write_header(&header).unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains(&format!("@SQ\tSN:{}\tLN:248956422", long_name)));
+    }
+
+    #[test]
+    fn test_header_special_characters_in_name() {
+        let mut header = SamHeader::new();
+        // Reference names with underscores and dots (common in NCBI)
+        header.add_reference("NC_000001.11".to_string(), 1000);
+        header.add_reference("scaffold_100".to_string(), 500);
+        header.add_reference("contig-001".to_string(), 250);
+
+        let mut buf = Vec::new();
+        let mut writer = SamWriter::new(Cursor::new(&mut buf));
+        writer.write_header(&header).unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("@SQ\tSN:NC_000001.11\tLN:1000"));
+        assert!(output.contains("@SQ\tSN:scaffold_100\tLN:500"));
+        assert!(output.contains("@SQ\tSN:contig-001\tLN:250"));
+    }
+
+    #[test]
+    fn test_header_with_program() {
+        let mut header = SamHeader::new();
+        header.program = Some("helix".to_string());
+        header.add_reference("chr1".to_string(), 1000);
+
+        let mut buf = Vec::new();
+        let mut writer = SamWriter::new(Cursor::new(&mut buf));
+        writer.write_header(&header).unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+
+        // Should have HD, SQ, and PG lines
+        assert!(output.contains("@HD\tVN:1.6"));
+        assert!(output.contains("@SQ\tSN:chr1\tLN:1000"));
+        assert!(output.contains("@PG\tID:helix\tPN:helix"));
+    }
+
+    #[test]
+    fn test_reference_length_zero() {
+        let mut header = SamHeader::new();
+        header.add_reference("empty_contig".to_string(), 0);
+
+        let mut buf = Vec::new();
+        let mut writer = SamWriter::new(Cursor::new(&mut buf));
+        writer.write_header(&header).unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("@SQ\tSN:empty_contig\tLN:0"));
+    }
+
+    #[test]
+    fn test_reference_large_length() {
+        let mut header = SamHeader::new();
+        // Human chromosome 1 length
+        header.add_reference("chr1".to_string(), 248956422);
+
+        let mut buf = Vec::new();
+        let mut writer = SamWriter::new(Cursor::new(&mut buf));
+        writer.write_header(&header).unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("@SQ\tSN:chr1\tLN:248956422"));
     }
 }

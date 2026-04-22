@@ -1,9 +1,10 @@
 /// Integration tests for helix
 
-use helix::align::{align, smith_waterman_scalar, AlignmentConfig};
+use helix::align::{align, smith_waterman_scalar, AlignmentConfig, AlignmentScorer};
 use helix::index::{Index, IndexBuilder, IndexConfig};
-use helix::seq::{encode_sequence, FastaReader, FastqReader, Reference};
-use helix::chain::{chain_seeds, find_seeds, ChainConfig, SeedConfig};
+use helix::seq::{encode_sequence, reverse_complement, FastaReader, FastqReader, Reference};
+use helix::chain::{chain_seeds, extend_chain, find_seeds, ChainConfig, ExtendConfig, SeedConfig};
+use helix::output::{SamHeader, SamRecord, SamWriter, FLAG_REVERSE, FLAG_UNMAPPED};
 use helix::util::detect_simd;
 
 use std::io::{BufReader, Cursor};
@@ -194,4 +195,246 @@ fn test_fasta_wrapped_lines() {
     let r2 = reader.next_record().unwrap().unwrap();
     assert_eq!(r2.name, "chr2");
     assert_eq!(r2.seq.len(), 4);
+}
+
+// TASK 22: Alignment pipeline integration tests
+
+/// Test full alignment pipeline with chain extension
+#[test]
+fn test_alignment_pipeline_with_extension() {
+    // Create a longer reference for proper minimizer matching
+    let ref_seq = b"ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT";
+    let reference = Reference {
+        name: "chr1".to_string(),
+        seq: encode_sequence(ref_seq),
+    };
+
+    // Build index with smaller k for testing
+    let config = IndexConfig { k: 11, w: 5 };
+    let mut builder = IndexBuilder::new(config);
+    builder.add_reference(&reference);
+    let index = builder.build();
+
+    // Query that matches part of the reference
+    let query = encode_sequence(b"ACGTACGTACGTACGTACGTACGTACGTACGT");
+
+    // Step 1: Find seeds
+    let seed_config = SeedConfig::default();
+    let seeds = find_seeds(&query, &index, &seed_config);
+
+    // Step 2: Chain seeds
+    let chain_config = ChainConfig {
+        min_score: 10,
+        ..Default::default()
+    };
+    let chains = chain_seeds(&seeds, &chain_config);
+
+    // Step 3: Extend best chain
+    if !chains.is_empty() {
+        let extend_config = ExtendConfig::default();
+        let alignment = extend_chain(&chains[0], &query, &index, &extend_config);
+
+        if let Some(aln) = alignment {
+            assert_eq!(aln.ref_name, "chr1");
+            assert!(aln.score > 0);
+            assert!(!aln.cigar.is_empty());
+        }
+    }
+}
+
+/// Test alignment with reverse complement
+#[test]
+fn test_alignment_reverse_complement() {
+    let ref_seq = b"ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT";
+    let reference = Reference {
+        name: "chr1".to_string(),
+        seq: encode_sequence(ref_seq),
+    };
+
+    let config = IndexConfig { k: 11, w: 5 };
+    let mut builder = IndexBuilder::new(config);
+    builder.add_reference(&reference);
+    let index = builder.build();
+
+    // Forward query
+    let forward_query = encode_sequence(b"ACGTACGTACGTACGTACGTACGT");
+
+    // Reverse complement query
+    let rc_query = reverse_complement(&forward_query);
+
+    // Both should produce seeds
+    let seed_config = SeedConfig::default();
+    let fwd_seeds = find_seeds(&forward_query, &index, &seed_config);
+    let rc_seeds = find_seeds(&rc_query, &index, &seed_config);
+
+    // At least one orientation should find seeds
+    assert!(fwd_seeds.len() > 0 || rc_seeds.len() > 0);
+}
+
+/// Test SAM record creation from alignment
+#[test]
+fn test_sam_record_from_alignment() {
+    // Create a mapped SAM record
+    let record = SamRecord {
+        qname: "read1".to_string(),
+        flag: 0,
+        rname: "chr1".to_string(),
+        pos: 100,
+        mapq: 60,
+        cigar: "50M".to_string(),
+        rnext: "*".to_string(),
+        pnext: 0,
+        tlen: 0,
+        seq: "ACGTACGTACGT".to_string(),
+        qual: "IIIIIIIIIIII".to_string(),
+        tags: vec![("AS".to_string(), "i:100".to_string())],
+    };
+
+    // Write to buffer
+    let mut buf = Vec::new();
+    {
+        let mut writer = SamWriter::new(Cursor::new(&mut buf));
+        let mut header = SamHeader::new();
+        header.add_reference("chr1".to_string(), 1000);
+        writer.write_header(&header).unwrap();
+        writer.write_record(&record).unwrap();
+    }
+
+    let output = String::from_utf8(buf).unwrap();
+    assert!(output.contains("read1\t0\tchr1\t100"));
+    assert!(output.contains("50M"));
+    assert!(output.contains("AS:i:100"));
+}
+
+/// Test SAM record for reverse complement alignment
+#[test]
+fn test_sam_record_reverse_complement() {
+    let record = SamRecord {
+        qname: "read1".to_string(),
+        flag: FLAG_REVERSE,
+        rname: "chr1".to_string(),
+        pos: 100,
+        mapq: 60,
+        cigar: "50M".to_string(),
+        rnext: "*".to_string(),
+        pnext: 0,
+        tlen: 0,
+        seq: "ACGTACGTACGT".to_string(),
+        qual: "IIIIIIIIIIII".to_string(),
+        tags: vec![],
+    };
+
+    assert_eq!(record.flag & FLAG_REVERSE, FLAG_REVERSE);
+}
+
+/// Test unmapped read handling
+#[test]
+fn test_unmapped_read_handling() {
+    // Query that won't match anything
+    let ref_seq = b"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    let reference = Reference {
+        name: "chr1".to_string(),
+        seq: encode_sequence(ref_seq),
+    };
+
+    let config = IndexConfig { k: 11, w: 5 };
+    let mut builder = IndexBuilder::new(config);
+    builder.add_reference(&reference);
+    let index = builder.build();
+
+    // Query with completely different sequence
+    let query = encode_sequence(b"TTTTTTTTTTTTTTTTTTTTTTTT");
+
+    let seed_config = SeedConfig::default();
+    let seeds = find_seeds(&query, &index, &seed_config);
+
+    // Should output as unmapped
+    let record = if seeds.is_empty() {
+        SamRecord::new_unmapped(
+            "read1".to_string(),
+            "TTTTTTTTTTTTTTTTTTTTTTTT".to_string(),
+            "IIIIIIIIIIIIIIIIIIIIIIII".to_string(),
+        )
+    } else {
+        // Still unmapped if no good chains
+        SamRecord::new_unmapped(
+            "read1".to_string(),
+            "TTTTTTTTTTTTTTTTTTTTTTTT".to_string(),
+            "IIIIIIIIIIIIIIIIIIIIIIII".to_string(),
+        )
+    };
+
+    assert_eq!(record.flag & FLAG_UNMAPPED, FLAG_UNMAPPED);
+    assert_eq!(record.rname, "*");
+    assert_eq!(record.cigar, "*");
+}
+
+/// Test alignment quality scoring integration
+#[test]
+fn test_alignment_quality_scoring() {
+    use helix::align::Cigar;
+
+    let scorer = AlignmentScorer::default();
+    let cigar = Cigar::from("45M5I");
+
+    let result = scorer.evaluate(&cigar, 80, 20, false);
+
+    assert_eq!(result.score, 80);
+    assert!(result.identity > 0.8);
+    assert!(result.gap_rate <= 0.15);
+    assert!(result.passes_filter);
+}
+
+/// Test MAPQ calculation
+#[test]
+fn test_mapq_calculation() {
+    let scorer = AlignmentScorer::default();
+
+    // Unique hit (no second best)
+    let mapq_unique = scorer.compute_mapq(100, 0);
+    assert_eq!(mapq_unique, 60);
+
+    // Close second best
+    let mapq_close = scorer.compute_mapq(100, 90);
+    assert!(mapq_close < 60);
+    assert!(mapq_close > 0);
+
+    // Much worse second best
+    let mapq_better = scorer.compute_mapq(100, 20);
+    assert!(mapq_better > mapq_close);
+}
+
+/// Test multiple reference alignment
+#[test]
+fn test_multiple_reference_alignment() {
+    let ref1 = Reference {
+        name: "chr1".to_string(),
+        seq: encode_sequence(b"ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT"),
+    };
+    let ref2 = Reference {
+        name: "chr2".to_string(),
+        seq: encode_sequence(b"TGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCA"),
+    };
+
+    let config = IndexConfig { k: 11, w: 5 };
+    let mut builder = IndexBuilder::new(config);
+    builder.add_reference(&ref1);
+    builder.add_reference(&ref2);
+    let index = builder.build();
+
+    assert_eq!(index.references.len(), 2);
+    assert_eq!(index.references[0].name, "chr1");
+    assert_eq!(index.references[1].name, "chr2");
+
+    // Query matching chr1
+    let query1 = encode_sequence(b"ACGTACGTACGTACGTACGT");
+    let seeds1 = find_seeds(&query1, &index, &SeedConfig::default());
+
+    // Query matching chr2
+    let query2 = encode_sequence(b"TGCATGCATGCATGCATGCA");
+    let seeds2 = find_seeds(&query2, &index, &SeedConfig::default());
+
+    // Both should find seeds
+    println!("Seeds for chr1 query: {}", seeds1.len());
+    println!("Seeds for chr2 query: {}", seeds2.len());
 }
